@@ -141,7 +141,7 @@ def demod_tod_double(tod, t_v=t_v, source_type=source_type, demod_mode=demod_mod
 
 
 def estimangle(tod, t_v=t_v, det_angle=true_det_angle, source_type=source_type,\
-                demod_mode=demod_mode, f_chop=f_chop, phi_chop=phi_chop,):
+                demod_mode=demod_mode, f_chop=f_chop, phi_chop=phi_chop, beam_fwhm = beam_fwhm):
     """
     Estimate the polarization angle from simulated or observed TOD data.
     
@@ -173,7 +173,30 @@ def estimangle(tod, t_v=t_v, det_angle=true_det_angle, source_type=source_type,\
     """
     _, Q, U = demod_tod_double(tod, t_v, source_type, demod_mode, f_chop, phi_chop, det_angle)    
     
-    # Compute polarization angle from mean Stokes parameters
-    alpha_reconstruit = 0.5 * jnp.arctan(jnp.mean(U) / jnp.mean(Q))
+    if scan_type == 1:
+        # 1. Calculer la position du télescope pendant le scan
+        azs = jnp.pi/2 + ampscan * jnp.cos(2*jnp.pi*freqscan*t_v)
         
+        # 2. Calculer l'offset par rapport à la source
+        offset_rad = azs - azel_source_input[0]  # différence en azimut
+        
+        # 3. Calculer la réponse du beam (gaussien)
+        beam_fwhm_rad = beam_fwhm * arcmin2rad
+        # Pour un faisceau gaussien : I(θ) = I₀ × exp(-4ln(2) × (θ/FWHM)²)
+        beam_response = jnp.exp(-4 * jnp.log(2) * (offset_rad / beam_fwhm_rad)**2)
+        
+        # 4. Corriger Q et U en divisant par la réponse du beam
+        # (on compense la perte de signal quand on s'éloigne du centre)
+        Q_corrected = Q / beam_response
+        U_corrected = U / beam_response
+        
+        # 5. Calculer l'angle avec les valeurs corrigées
+        alpha_reconstruit = 0.5 * jnp.arctan(jnp.mean(U_corrected) / jnp.mean(Q_corrected))
+        
+    else:
+        # Pas de correction nécessaire pour scan_type = 0
+        Q_corrected = Q
+        U_corrected = U
+        alpha_reconstruit = 0.5 * jnp.arctan(jnp.mean(U) / jnp.mean(Q))
+            
     return jnp.degrees(alpha_reconstruit)
