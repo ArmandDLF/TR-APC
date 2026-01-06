@@ -175,7 +175,7 @@ def estimangle(tod, t_v=t_v, det_angle=true_det_angle, source_type=source_type,\
     
     if scan_type == 1:
         # 1. Calculer la position du télescope pendant le scan
-        azs = jnp.pi/2 + ampscan * jnp.cos(2*jnp.pi*freqscan*t_v)
+        azs = jnp.pi/2 + amp_scan * jnp.cos(2*jnp.pi*freq_scan*t_v)
         
         # 2. Calculer l'offset par rapport à la source
         offset_rad = azs - azel_source_input[0]  # différence en azimut
@@ -198,5 +198,24 @@ def estimangle(tod, t_v=t_v, det_angle=true_det_angle, source_type=source_type,\
         Q_corrected = Q
         U_corrected = U
         alpha_reconstruit = 0.5 * jnp.arctan(jnp.mean(U) / jnp.mean(Q))
-            
+
+    import matplotlib.pyplot as plt
+    # Plot Q,U variations and angle reconstruction over time
+    plt.figure(figsize=(10, 4))
+    plt.subplot(1, 2, 1)
+    plt.plot(t_v, Q, label='Q(t)')
+    plt.plot(t_v, U, label='U(t)')
+    plt.xlabel('Time (s)')
+    plt.ylabel('Stokes parameters')
+    plt.legend()
+    plt.subplot(1, 2, 2)
+    plt.plot(t_v, jnp.degrees(0.5 * jnp.arctan2(U, Q)), label='Reconstructed angle (deg)')
+    plt.axhline(y=jnp.degrees(alpha_reconstruit), color='r', linestyle='--', label='Reconstructed mean angle (deg)')
+    plt.xlabel('Time (s)')
+    plt.ylabel('Polarization angle (deg)')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("angle_reconstruction_droneS.png", dpi=150)
+    plt.close()
+
     return jnp.degrees(alpha_reconstruit)
