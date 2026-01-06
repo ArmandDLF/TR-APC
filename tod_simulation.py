@@ -120,7 +120,7 @@ def conv_source(beam_fwhm=beam_fwhm, Nside=Nside, ipix_source_input=ipix_source_
     m_input_beam_conv = m_input_beam_conv / global_max
 
     # Write and return
-    hp.write_map('beam_droneF.fits', m_input_beam_conv, overwrite=True)
+    hp.write_map('beam_drone.fits', m_input_beam_conv, overwrite=True)
     
     return Stokes.from_stokes(*m_input_beam_conv)
 

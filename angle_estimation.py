@@ -215,7 +215,7 @@ def estimangle(tod, t_v=t_v, det_angle=true_det_angle, source_type=source_type,\
     plt.ylabel('Polarization angle (deg)')
     plt.legend()
     plt.tight_layout()
-    plt.savefig("angle_reconstruction_droneS.png", dpi=150)
+    plt.savefig("QUalpha_TOD.png", dpi=150)
     plt.close()
 
     return jnp.degrees(alpha_reconstruit)
