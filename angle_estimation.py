@@ -123,15 +123,13 @@ def demod_tod_double(tod, t_v=t_v, source_type=source_type, demod_mode=demod_mod
 
     #low-pass filtering at 2 Hz
     freq = jnp.fft.fftfreq(len(t_v), t_v[1] - t_v[0])
-    filtre = jnp.abs(freq) < 2
-    filterfft1 = jnp.array(jnp.fft.fft(demodQU))
-    filterfft2 = jnp.array(jnp.fft.fft(demodI))
-    filterfft1 = filterfft1.at[~filtre].set(0.0)
-    filterfft2 = filterfft2.at[~filtre].set(0.0)
+    mask_lp = jnp.abs(freq) < 2
+    filterfftQU = jnp.fft.fft(demodQU) * mask_lp
+    filterfftI = jnp.fft.fft(demodI) * mask_lp
 
     # Transform filtered signals back to time domain
-    redemod = jnp.fft.ifft(filterfft1)
-    redemod_I = jnp.fft.ifft(filterfft2)
+    redemod = jnp.fft.ifft(filterfftQU)
+    redemod_I = jnp.fft.ifft(filterfftI)
     
     dsT = 2 * jnp.real(redemod_I)      #x2 car renormalisation dûe au chopper 0/1 et pas -1/1
     demodQ = 4 * jnp.real(redemod)     #x4 pour renormalisation chopper (x2) et moyenne de cos^2 = 1/2 (x2)
