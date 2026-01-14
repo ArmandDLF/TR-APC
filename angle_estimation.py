@@ -102,7 +102,11 @@ def demod_tod_double(tod, t_v=t_v, source_type=source_type, demod_mode=demod_mod
     - Demodulation with respect to half-wave plate (HWP) rotation frequency.
     Finally applies a low-pass filter in frequency space and returns the I, Q, U components.
     """
-    
+    fft_res = jnp.fft.fft(tod)
+    threshold = 0.05 * jnp.max(jnp.abs(fft_res))
+    fft_res = jnp.where(jnp.abs(fft_res) < threshold, 0, fft_res)
+    tod = jnp.fft.ifft(fft_res)
+
     in_struct = jax.ShapeDtypeStruct(tod.shape, tod.dtype)
 
     # --- temporal operators ---
@@ -118,7 +122,7 @@ def demod_tod_double(tod, t_v=t_v, source_type=source_type, demod_mode=demod_mod
 
     phasor_chopper = ts.chopper(t_v, f_chop, phi_chop) if 'c' in source_type else 1.0
 
-    demodQU = op_hwp.mv(tod * phasor_chopper)
+    demodQU = op_hwp.mv(tod * 1)
     demodI = tod * phasor_chopper
 
     #low-pass filtering at 2 Hz
@@ -132,7 +136,7 @@ def demod_tod_double(tod, t_v=t_v, source_type=source_type, demod_mode=demod_mod
     redemod_I = jnp.fft.ifft(filterfftI)
     
     dsT = 2 * jnp.real(redemod_I)      #x2 car renormalisation dûe au chopper 0/1 et pas -1/1
-    demodQ = 4 * jnp.real(redemod)     #x4 pour renormalisation chopper (x2) et moyenne de cos^2 = 1/2 (x2)
+    demodQ = 4 * jnp.real(redemod)     #x4 ? pour renormalisation chopper (x2) et moyenne de cos^2 = 1/2 (x2)
     demodU = 4 * jnp.imag(redemod)     #idem 
 
     return dsT, demodQ, demodU
@@ -149,8 +153,6 @@ def estimangle(tod, t_v=t_v, det_angle=true_det_angle, source_type=source_type,\
         Time-ordered data (TOD) from the detector.
     t_v : array_like
         Time vector for the TOD.
-    alpha_drone : float
-        Theoretical polarization angle of the source (in radians).
     det_angle : float
         Detector angle correction (in radians).
     source_type : str, optional
@@ -200,17 +202,25 @@ def estimangle(tod, t_v=t_v, det_angle=true_det_angle, source_type=source_type,\
     import matplotlib.pyplot as plt
     # Plot Q,U variations and angle reconstruction over time
     plt.figure(figsize=(10, 4))
-    plt.subplot(1, 2, 1)
+    plt.subplot(1, 3, 1)
     plt.plot(t_v, Q, label='Q(t)')
     plt.plot(t_v, U, label='U(t)')
     plt.xlabel('Time (s)')
     plt.ylabel('Stokes parameters')
     plt.legend()
-    plt.subplot(1, 2, 2)
+    plt.subplot(1, 3, 2)
     plt.plot(t_v, jnp.degrees(0.5 * jnp.arctan2(U, Q)), label='Reconstructed angle (deg)')
     plt.axhline(y=jnp.degrees(alpha_reconstruit), color='r', linestyle='--', label='Reconstructed mean angle (deg)')
     plt.xlabel('Time (s)')
     plt.ylabel('Polarization angle (deg)')
+    plt.subplot(1, 3, 3) # Add fft of Q and U
+    freq = jnp.fft.fftfreq(len(t_v), t_v[1] - t_v[0])
+    fft_Q = jnp.fft.fft(Q)
+    fft_U = jnp.fft.fft(U)
+    plt.plot(freq[:len(freq)//2], jnp.abs(fft_Q)[:len(freq)//2], label='FFT of Q')
+    plt.plot(freq[:len(freq)//2], jnp.abs(fft_U)[:len(freq)//2], label='FFT of U')
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('Amplitude')
     plt.legend()
     plt.tight_layout()
     plt.savefig("QUalpha_TOD.png", dpi=150)

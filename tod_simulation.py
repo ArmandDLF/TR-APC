@@ -36,7 +36,7 @@ Nside = 512  # Healpix resolution parameter (number of pixels = 12*Nside^2)
 I0 = 1000  # reference intensity
 noise_level = I0 / 100  # noise amplitude
 
-scan_type = 1  # 0: staring at source; 1: scanning at constant elevation
+scan_type = 0 # 0: staring at source; 1: scanning at constant elevation
 azel_source_input = (jnp.pi / 2, 45 * jnp.pi / 180.0)  # source azimuth, elevation (radians)
 
 # Drone amplitude variations parameters
@@ -74,7 +74,7 @@ n_detectors = 1
 
 # Time
 k = 15 # in seconds
-sample_rate = 100  # in Hz
+sample_rate = 185  # in Hz
 t_v = np.arange(0, k, 1.0/sample_rate) 
 
 #%% Constructing normalized source map
@@ -362,7 +362,7 @@ def telescope_op(t_v, alpha_det=true_det_angle, hwp=hwp, vpm=vpm):
     pol = LinearPolarizerOperator.create(shape=(n_detectors, len(t_v)), 
                                          angles=alpha_det, stokes='IQUV')
 
-    return pol @ wp_op
+    return pol @ wp_op, wp_op # TODO remove wp_op
 
 def pipeline(t_v, landscape, alpha_det=true_det_angle, scan_type=scan_type,\
           amp_scan=amp_scan, hwp=True, vpm=False,\
@@ -396,7 +396,12 @@ def pipeline(t_v, landscape, alpha_det=true_det_angle, scan_type=scan_type,\
     M_drone = drone_operator(t_v,alpha_drone,source_type,I0,f_chop,phi_chop)
 
     # Detector
-    telescope_detection = telescope_op(t_v, alpha_det, hwp, vpm)
+    telescope_detection, wp_op = telescope_op(t_v, alpha_det, hwp, vpm)
+
+    # TODO Remove 
+    fixed_conv_source = conv_source(beam_fwhm, Nside, ipix_source_input)
+    input_iquv = (M_drone @ pointing).mv(fixed_conv_source) 
+    jnp.save('iquv_drone.npy', jnp.array([input_iquv.i[0], input_iquv.q[0], input_iquv.u[0]]))
     
     return (telescope_detection @ M_drone @ pointing).reduce()
 

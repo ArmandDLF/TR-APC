@@ -25,4 +25,3 @@ alpha_reconstructed = ae.estimangle(tod)
 
 print(f"Reconstructed angle (deg):", alpha_reconstructed)
 print("True angle (deg):", jnp.degrees(ts.alpha_drone))
-print("Angle error (deg):", jnp.abs(alpha_reconstructed - jnp.degrees(ts.alpha_drone)))
