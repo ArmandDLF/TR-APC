@@ -18,7 +18,7 @@ import jax.numpy as jnp
 
 
 from furax.obs import LinearPolarizerOperator, ActualLinearPolarizerOperator
-from furax.obs import HWPOperator, WPOperator
+from furax.obs import HWPOperator, WPOperator, RealisticHWPOperator, QURotationOperator
 from furax.core import HomothetyOperator
 
 from furax.obs.landscapes import HealpixLandscape
@@ -53,7 +53,7 @@ ipix_source_input = hp.ang2pix(Nside, 0.5 * jnp.pi - azel_source_input[1], azel_
 beam_fwhm = 60  # beam FWHM in arcminutes
 alpha_drone = 10.0 * jnp.pi / 180  # drone polarization angle in radians
 true_det_angle = 5.0 * jnp.pi / 180  # true detector angle in radians
-source_type = 'ic'
+source_type = 'i'
 
 # HWP and chopper parameters
 f_chop = 37  # chopping frequency (Hz)
@@ -65,6 +65,7 @@ f_vpm = 10.  # VPM frequency (Hz)
 f_hwp = 2.0  # frequency of half-wave plate rotation (Hz)
 demod_mode = 4  # demodulation mode
 hwp, vpm = True, False # Use one or the other
+realistic_hwp = True # Requires hwp = True
 
 # Telescope parameters 
 amp_scan = 0.02  # scanning amplitude
@@ -74,7 +75,7 @@ n_detectors = 1
 
 # Time
 k = 15 # in seconds
-sample_rate = 185  # in Hz
+sample_rate = 185  # in Hz, multiple of f_chop and ~200Hz
 t_v = np.arange(0, k, 1.0/sample_rate) 
 
 #%% Constructing normalized source map
@@ -315,7 +316,7 @@ def delta_computation(t_v):
     z = z_computation(t_v)
     return 4 * jnp.pi * nu / c * z * jnp.cos(incidence_theta)
 
-def wave_plate(t_v, hwp=hwp, vpm=vpm):
+def wave_plate(t_v, hwp=hwp, vpm=vpm, realistic_hwp=realistic_hwp):
     """
     Create wave plate operator (HWP or VPM).
 
@@ -338,13 +339,35 @@ def wave_plate(t_v, hwp=hwp, vpm=vpm):
         phi = delta_computation(t_v)
         angles = None # No rotation
     
+    if realistic_hwp and hwp:
+
+    # v1
+        # hwp_normal = WPOperator.create(shape=(n_detectors, len(t_v)),
+        #                       phi=phi, angles=0,
+        #                       stokes='IQUV')
+        # hwp_rot = WPOperator.create(shape=(n_detectors, len(t_v)),
+        #                       phi=phi, angles=54 * jnp.pi / 180,
+        #                       stokes='IQUV')
+        # rotator = QURotationOperator.create(shape=(n_detectors, len(t_v)), 
+        #                                     angles=angles,
+        #                                     stokes='IQUV')
+        
+        # return rotator.T @ hwp_normal @ hwp_rot @ hwp_normal @ rotator # 3 HWP in series
+    # v2
+        hwp_realistic = RealisticHWPOperator.create(shape=(n_detectors, len(t_v)),
+                              frequency=90, angleIncidence= 0,
+                              epsilon=1, phi=0,
+                              angles=angles,
+                              stokes='IQUV')
+        return hwp_realistic
+
     return WPOperator.create(shape=(n_detectors, len(t_v)),
                               phi=phi, angles=angles,
                               stokes='IQUV')
 
 #%% Operator combination
 
-def telescope_op(t_v, alpha_det=true_det_angle, hwp=hwp, vpm=vpm):
+def telescope_op(t_v, alpha_det=true_det_angle, hwp=hwp, vpm=vpm, realistic_hwp=realistic_hwp):
     """
     Build telescope detection operator including HWP or VPM.
 
@@ -357,7 +380,7 @@ def telescope_op(t_v, alpha_det=true_det_angle, hwp=hwp, vpm=vpm):
         Operator: telescope detection operator
     """
 
-    wp_op = wave_plate(t_v, hwp=hwp, vpm=vpm)
+    wp_op = wave_plate(t_v, hwp, vpm, realistic_hwp)
 
     pol = LinearPolarizerOperator.create(shape=(n_detectors, len(t_v)), 
                                          angles=alpha_det, stokes='IQUV')
@@ -367,7 +390,7 @@ def telescope_op(t_v, alpha_det=true_det_angle, hwp=hwp, vpm=vpm):
 def pipeline(t_v, landscape, alpha_det=true_det_angle, scan_type=scan_type,\
           amp_scan=amp_scan, hwp=True, vpm=False,\
           alpha_drone=alpha_drone, source_type=source_type, I0=I0,\
-          f_chop=f_chop, phi_chop=phi_chop):
+          f_chop=f_chop, phi_chop=phi_chop, realistic_hwp=realistic_hwp):
     """
     Build full pipeline operator from sky to time-ordered data (TOD).
     
@@ -396,12 +419,7 @@ def pipeline(t_v, landscape, alpha_det=true_det_angle, scan_type=scan_type,\
     M_drone = drone_operator(t_v,alpha_drone,source_type,I0,f_chop,phi_chop)
 
     # Detector
-    telescope_detection, wp_op = telescope_op(t_v, alpha_det, hwp, vpm)
-
-    # TODO Remove 
-    fixed_conv_source = conv_source(beam_fwhm, Nside, ipix_source_input)
-    input_iquv = (M_drone @ pointing).mv(fixed_conv_source) 
-    jnp.save('iquv_drone.npy', jnp.array([input_iquv.i[0], input_iquv.q[0], input_iquv.u[0]]))
+    telescope_detection, wp_op = telescope_op(t_v, alpha_det, hwp, vpm, realistic_hwp)
     
     return (telescope_detection @ M_drone @ pointing).reduce()
 
@@ -426,7 +444,7 @@ def detectors_output(t_v=t_v, alpha_det=true_det_angle, scan_type=scan_type,\
           amp_scan=amp_scan, hwp=hwp, vpm=vpm, noise_level=noise_level,\
           alpha_drone=alpha_drone, source_type=source_type, I0=I0,\
           f_chop=f_chop, phi_chop=phi_chop, beam_fwhm=beam_fwhm,\
-          Nside=Nside, ipix_source_input=ipix_source_input):
+          Nside=Nside, ipix_source_input=ipix_source_input, realistic_hwp=realistic_hwp):
     """
     Simulate detector time-ordered data (TOD) using the full pipeline.
     Parameters:
@@ -456,7 +474,7 @@ def detectors_output(t_v=t_v, alpha_det=true_det_angle, scan_type=scan_type,\
     pipeline_op = pipeline(t_v, landscape, alpha_det, scan_type,\
                             amp_scan, hwp, vpm,\
                             alpha_drone, source_type, I0,\
-                            f_chop, phi_chop)
+                            f_chop, phi_chop, realistic_hwp)
     
     fixed_conv_source = conv_source(beam_fwhm, Nside, ipix_source_input)
     detectors_res = pipeline_op.mv(fixed_conv_source)
@@ -465,6 +483,6 @@ def detectors_output(t_v=t_v, alpha_det=true_det_angle, scan_type=scan_type,\
     if 'n' in source_type:
         detectors_res = add_noise(detectors_res, noise_level)
     
-    jnp.save('detectors_res.npy', detectors_res)
+    jnp.save(f'detectors_res{int(realistic_hwp)}.npy', detectors_res)
 
     return pipeline_op, fixed_conv_source, detectors_res

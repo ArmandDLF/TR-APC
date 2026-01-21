@@ -18,10 +18,11 @@ if CALCULATE:
     _, _, tods = ts.detectors_output()
     tod = tods[0]  # Select the TOD of the first detector
 else:
-    tod = jnp.load('detectors_res.npy')[0]  # Load precomputed TOD for faster testing
+    tod = jnp.load(f'detectors_res{int(ts.realistic_hwp)}.npy')[0]  # Load precomputed TOD for faster testing
 
+print("*** Detector TOD loaded. ***")
 
 alpha_reconstructed = ae.estimangle(tod)
 
 print(f"Reconstructed angle (deg):", alpha_reconstructed)
-print("True angle (deg):", jnp.degrees(ts.alpha_drone))
+print(f"Delta (deg):", alpha_reconstructed - jnp.degrees(ts.alpha_drone))

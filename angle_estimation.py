@@ -51,6 +51,7 @@ f_vpm = ts.f_vpm
 f_hwp = ts.f_hwp
 demod_mode = ts.demod_mode
 hwp, vpm = ts.hwp, ts.vpm
+realistic_hwp = ts.realistic_hwp
 
 # Telescope parameters 
 amp_scan = ts.amp_scan
@@ -64,8 +65,33 @@ t_v = ts.t_v
 
 #%% Demodulation
 
+def realHWP_dephasing(tod):
+    """
+    Return the dephasing angle (in radians) introduced by the realistic HWP model.
+    This is used to correct the demodulation phase.
+    """
+    try:
+        ideal_hwp_tod = jnp.load(f'detectors_res0.npy')[0]
+    except:
+        ideal_hwp_tod = ts.detectors_output(realistic_hwp=False)[2][0]
+
+    # Hilbert method to estimate phase difference
+    from scipy.signal import hilbert
+    xa = hilbert(ideal_hwp_tod - jnp.mean(ideal_hwp_tod))
+    ya = hilbert(tod - jnp.mean(tod))
+
+    phix = jnp.unwrap(jnp.angle(xa))
+    phiy = jnp.unwrap(jnp.angle(ya))
+    dphi = phiy - phix
+    
+    mean_dphi = float(jnp.mean(dphi))
+    mean_dphi = (mean_dphi + jnp.pi) % (2 * jnp.pi) - jnp.pi
+
+    return mean_dphi
+
 def demod_tod_double(tod, t_v=t_v, source_type=source_type, demod_mode=demod_mode, \
-                     f_chop=f_chop, phi_chop=phi_chop, det_angle=true_det_angle):
+                     f_chop=f_chop, phi_chop=phi_chop, det_angle=true_det_angle, \
+                     realistic_hwp=realistic_hwp):
     """
     Demodulate time-ordered data (TOD) including chopper modulation and HWP angle effects.
     
@@ -102,16 +128,21 @@ def demod_tod_double(tod, t_v=t_v, source_type=source_type, demod_mode=demod_mod
     - Demodulation with respect to half-wave plate (HWP) rotation frequency.
     Finally applies a low-pass filter in frequency space and returns the I, Q, U components.
     """
-    fft_res = jnp.fft.fft(tod)
-    threshold = 0.05 * jnp.max(jnp.abs(fft_res))
-    fft_res = jnp.where(jnp.abs(fft_res) < threshold, 0, fft_res)
-    tod = jnp.fft.ifft(fft_res)
+    # Denoising small amplitudes
+    # fft_res = jnp.fft.fft(tod)
+    # threshold = 0.05 * jnp.max(jnp.abs(fft_res))
+    # fft_res = jnp.where(jnp.abs(fft_res) < threshold, 0, fft_res)
+    # tod = jnp.fft.ifft(fft_res)
 
     in_struct = jax.ShapeDtypeStruct(tod.shape, tod.dtype)
 
     # --- temporal operators ---
-
-    phase_func = lambda t: demod_mode * 2 * jnp.pi * f_hwp * t - 2.0 * det_angle
+    extra_phi = 0.0
+    if realistic_hwp:
+        extra_phi = realHWP_dephasing(tod)
+    
+    phase_func = lambda t: demod_mode * 2 * jnp.pi * f_hwp * t - 2.0 * det_angle + extra_phi
+    
     op_hwp = HWPDemodOperator(
         phase_func = phase_func,
         in_structure = in_struct,
@@ -143,7 +174,8 @@ def demod_tod_double(tod, t_v=t_v, source_type=source_type, demod_mode=demod_mod
 
 
 def estimangle(tod, t_v=t_v, det_angle=true_det_angle, source_type=source_type,\
-                demod_mode=demod_mode, f_chop=f_chop, phi_chop=phi_chop, beam_fwhm = beam_fwhm):
+                demod_mode=demod_mode, f_chop=f_chop, phi_chop=phi_chop, beam_fwhm = beam_fwhm,\
+                realistic_hwp=realistic_hwp):
     """
     Estimate the polarization angle from simulated or observed TOD data.
     
@@ -157,21 +189,23 @@ def estimangle(tod, t_v=t_v, det_angle=true_det_angle, source_type=source_type,\
         Detector angle correction (in radians).
     source_type : str, optional
         Type of source simulated or observed (e.g., 'i', 'c' indicating presence of chopper).
-    scan_type : str
-        Type of telescope scan used.
     demod_mode : int, optional
         Demodulation mode; typically corresponds to harmonics of HWP rotation frequency.
     f_chop : float, optional
         Frequency of the chopper modulation (Hz).
     phi_chop : float, optional
         Phase offset of the chopper modulation (radians).
+    beam_fwhm : float, optional
+        Full-width at half-maximum of the beam (in arcminutes).
+    realistic_hwp : bool, optional
+        Whether to use a realistic HWP model in demodulation.
 
     Returns:
     --------
     alpha_reconstruit : float or tuple
         Estimated polarization angle in degrees    
     """
-    _, Q, U = demod_tod_double(tod, t_v, source_type, demod_mode, f_chop, phi_chop, det_angle)    
+    _, Q, U = demod_tod_double(tod, t_v, source_type, demod_mode, f_chop, phi_chop, det_angle, realistic_hwp)    
     
     if scan_type == 1:
         # 1. Calculer la position du télescope pendant le scan
