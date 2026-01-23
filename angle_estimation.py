@@ -63,31 +63,62 @@ k = ts.k
 sample_rate = ts.sample_rate
 t_v = ts.t_v
 
+CALCULATE_TOD_PHASE = True
+
 #%% Demodulation
 
-def realHWP_dephasing(tod):
+def realHWP_dephasing():
     """
     Return the dephasing angle (in radians) introduced by the realistic HWP model.
     This is used to correct the demodulation phase.
     """
-    try:
-        ideal_hwp_tod = jnp.load(f'detectors_res0.npy')[0]
-    except:
-        ideal_hwp_tod = ts.detectors_output(realistic_hwp=False)[2][0]
+    if CALCULATE_TOD_PHASE:
+        ideal_hwp = ts.detectors_output(realistic_hwp=False,
+                                            source_type='i',
+                                            scan_type=0)[2][0]
+        realistic_hwp = ts.detectors_output(realistic_hwp=True,
+                                            source_type='i',
+                                            scan_type=0)[2][0]
+        jnp.save(f'detectors_res_hwp.npy', ideal_hwp)
+        jnp.save(f'detectors_res_realhwp.npy', realistic_hwp)
+    else:
+        ideal_hwp = jnp.load(f'detectors_res_hwp.npy')[0]
+        realistic_hwp = jnp.load(f'detectors_res_realhwp.npy')[0]
 
     # Hilbert method to estimate phase difference
-    from scipy.signal import hilbert
-    xa = hilbert(ideal_hwp_tod - jnp.mean(ideal_hwp_tod))
-    ya = hilbert(tod - jnp.mean(tod))
+    from scipy.signal import hilbert, butter, filtfilt
+
+    # More general method, but works less well for simplest signal (case 'i', scan_type=0)
+
+    # f0 = demod_mode * f_hwp  # demodulation frequency
+    # bw = 0.4 # 40% bandwidth
+    # low  = f0 * (1 - bw)
+    # high = f0 * (1 + bw)
+    # b, a = butter(4, [low / (sample_rate / 2), high / (sample_rate / 2)], btype="band")
+    # xf = filtfilt(b, a, realistic_hwp)
+    # yf = filtfilt(b, a, ideal_hwp)
+    # ax = hilbert(xf)
+    # ay = hilbert(yf)
+    # # phi = jnp.unwrap(jnp.angle(ax) - jnp.angle(ay))
+    # # phi = (jnp.mean(phi) + jnp.pi) % (2 * jnp.pi) - jnp.pi
+    # cross = ax * jnp.conj(ay)
+    # phi = jnp.angle(jnp.mean(cross))
+    # phi = (phi + jnp.pi) % (2*jnp.pi) - jnp.pi
+
+
+    # Simple method, works well for simple signals but not for complex ones
+
+    xa = hilbert(ideal_hwp - jnp.mean(ideal_hwp))
+    ya = hilbert(realistic_hwp - jnp.mean(realistic_hwp))
 
     phix = jnp.unwrap(jnp.angle(xa))
     phiy = jnp.unwrap(jnp.angle(ya))
     dphi = phiy - phix
     
-    mean_dphi = float(jnp.mean(dphi))
-    mean_dphi = (mean_dphi + jnp.pi) % (2 * jnp.pi) - jnp.pi
+    phi = float(jnp.mean(dphi))
+    phi = (phi + jnp.pi) % (2 * jnp.pi) - jnp.pi
 
-    return mean_dphi
+    return phi
 
 def demod_tod_double(tod, t_v=t_v, source_type=source_type, demod_mode=demod_mode, \
                      f_chop=f_chop, phi_chop=phi_chop, det_angle=true_det_angle, \
@@ -129,17 +160,15 @@ def demod_tod_double(tod, t_v=t_v, source_type=source_type, demod_mode=demod_mod
     Finally applies a low-pass filter in frequency space and returns the I, Q, U components.
     """
     # Denoising small amplitudes
-    # fft_res = jnp.fft.fft(tod)
-    # threshold = 0.05 * jnp.max(jnp.abs(fft_res))
-    # fft_res = jnp.where(jnp.abs(fft_res) < threshold, 0, fft_res)
-    # tod = jnp.fft.ifft(fft_res)
+    fft_res = jnp.fft.fft(tod)
+    threshold = 0.01 * jnp.max(jnp.abs(fft_res))
+    fft_res = jnp.where(jnp.abs(fft_res) < threshold, 0, fft_res)
+    tod = jnp.real(jnp.fft.ifft(fft_res)) 
 
     in_struct = jax.ShapeDtypeStruct(tod.shape, tod.dtype)
 
     # --- temporal operators ---
-    extra_phi = 0.0
-    if realistic_hwp:
-        extra_phi = realHWP_dephasing(tod)
+    extra_phi = realHWP_dephasing() if realistic_hwp else 0.0
     
     phase_func = lambda t: demod_mode * 2 * jnp.pi * f_hwp * t - 2.0 * det_angle + extra_phi
     

@@ -75,7 +75,7 @@ n_detectors = 1
 
 # Time
 k = 15 # in seconds
-sample_rate = 185  # in Hz, multiple of f_chop and ~200Hz
+sample_rate = 185  # in Hz, ~200Hz and multiple of f_chop
 t_v = np.arange(0, k, 1.0/sample_rate) 
 
 #%% Constructing normalized source map
@@ -352,7 +352,7 @@ def wave_plate(t_v, hwp=hwp, vpm=vpm, realistic_hwp=realistic_hwp):
         #                                     angles=angles,
         #                                     stokes='IQUV')
         
-        # return rotator.T @ hwp_normal @ hwp_rot @ hwp_normal @ rotator # 3 HWP in series
+        # return rotator.T @ hwp_normal @ hwp_rot @ hwp_normal @ rotator # 3 ideal HWP in series
     # v2
         hwp_realistic = RealisticHWPOperator.create(shape=(n_detectors, len(t_v)),
                               frequency=90, angleIncidence= 0,
